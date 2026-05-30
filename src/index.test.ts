@@ -1,44 +1,74 @@
-/**
- * Tests for Reciprocal Rank Fusion.
- */
-
 import { describe, it, expect } from 'vitest';
-import { rrfFuse, type RankedItem } from './index';
+import { rrfCombine, RRF_K_DEFAULT } from './index';
 
-describe('rrfFuse', () => {
-  it('returns empty for no rankers', () => {
-    expect(rrfFuse({ rankers: [] })).toEqual([]);
+const item = (key: string, score = 0) => ({ key, score, row: { key } });
+
+describe('rrfCombine', () => {
+  it('returns empty for empty input', () => {
+    expect(rrfCombine([])).toEqual([]);
   });
 
-  it('single ranker preserves order', () => {
-    const ranker: RankedItem[] = [
-      { id: 'a' },
-      { id: 'b' },
-      { id: 'c' },
-    ];
-    const out = rrfFuse({ rankers: [ranker] });
-    expect(out.map((r) => r.id)).toEqual(['a', 'b', 'c']);
-    expect(out[0].score).toBeGreaterThan(out[1].score);
+  it('handles a single ranker — preserves order, computes 1/(k+rank)', () => {
+    const out = rrfCombine([
+      { name: 'bm25', list: [item('a'), item('b'), item('c')] },
+    ]);
+    expect(out.map((x) => x.row.key)).toEqual(['a', 'b', 'c']);
+    expect(out[0].score).toBeCloseTo(1 / (RRF_K_DEFAULT + 1));
+    expect(out[1].score).toBeCloseTo(1 / (RRF_K_DEFAULT + 2));
+    expect(out.every((x) => x.rankers.length === 1 && x.rankers[0] === 'bm25')).toBe(true);
   });
 
-  it('combines two rankers, rewarding agreement', () => {
-    const r1: RankedItem[] = [{ id: 'x' }, { id: 'y' }, { id: 'z' }];
-    const r2: RankedItem[] = [{ id: 'y' }, { id: 'x' }, { id: 'w' }];
-    const out = rrfFuse({ rankers: [r1, r2] });
-    // x and y appear in both → should rank above z and w
-    const ids = out.map((r) => r.id);
-    expect(ids.slice(0, 2).sort()).toEqual(['x', 'y']);
-    expect(out.find((r) => r.id === 'x')!.rankerHits).toBe(2);
-    expect(out.find((r) => r.id === 'z')!.rankerHits).toBe(1);
+  it('sums contributions for items that appear in multiple rankers', () => {
+    const out = rrfCombine([
+      { name: 'bm25',       list: [item('a'), item('b'), item('c')] },
+      { name: 'embeddings', list: [item('c'), item('a'), item('d')] },
+    ]);
+    const byKey = Object.fromEntries(out.map((x) => [x.row.key, x]));
+    // 'a' is rank 1 in bm25 and rank 2 in embeddings
+    expect(byKey.a.score).toBeCloseTo(
+      1 / (RRF_K_DEFAULT + 1) + 1 / (RRF_K_DEFAULT + 2),
+    );
+    expect(byKey.a.rankers.sort()).toEqual(['bm25', 'embeddings']);
+    // 'c' is rank 3 in bm25 and rank 1 in embeddings
+    expect(byKey.c.score).toBeCloseTo(
+      1 / (RRF_K_DEFAULT + 3) + 1 / (RRF_K_DEFAULT + 1),
+    );
   });
 
-  it('respects k damping', () => {
-    const r1: RankedItem[] = [{ id: 'a' }, { id: 'b' }];
-    const out1 = rrfFuse({ rankers: [r1], k: 1 });
-    const out60 = rrfFuse({ rankers: [r1], k: 60 });
-    // smaller k → larger gap between rank 1 and rank 2
-    const gap1 = out1[0].score - out1[1].score;
-    const gap60 = out60[0].score - out60[1].score;
-    expect(gap1).toBeGreaterThan(gap60);
+  it('items found in BOTH rankers outrank items found in only one', () => {
+    const out = rrfCombine([
+      { name: 'bm25',       list: [item('only-bm'), item('shared')] },
+      { name: 'embeddings', list: [item('only-emb'), item('shared')] },
+    ]);
+    expect(out[0].row.key).toBe('shared');
+    expect(out[0].rankers.sort()).toEqual(['bm25', 'embeddings']);
+  });
+
+  it('k controls the dampening — larger k flattens the curve', () => {
+    const flat = rrfCombine([{ name: 'a', list: [item('x'), item('y')] }], 1000);
+    const sharp = rrfCombine([{ name: 'a', list: [item('x'), item('y')] }], 1);
+    const ratioFlat = flat[0].score / flat[1].score;
+    const ratioSharp = sharp[0].score / sharp[1].score;
+    expect(ratioSharp).toBeGreaterThan(ratioFlat);
+  });
+
+  it('dedupes a ranker name when the same ranker contributes twice', () => {
+    const out = rrfCombine([
+      { name: 'bm25', list: [item('a')] },
+      { name: 'bm25', list: [item('a')] }, // shouldn't double-count the *name*
+    ]);
+    expect(out[0].rankers).toEqual(['bm25']);
+    // Score IS summed even if name is not duplicated
+    expect(out[0].score).toBeCloseTo(2 / (RRF_K_DEFAULT + 1));
+  });
+
+  it('preserves the row payload from the first occurrence', () => {
+    const a1 = { key: 'a', score: 99, row: { which: 'first' } };
+    const a2 = { key: 'a', score: 1,  row: { which: 'second' } };
+    const out = rrfCombine([
+      { name: 'bm25',       list: [a1] },
+      { name: 'embeddings', list: [a2] },
+    ]);
+    expect(out[0].row).toEqual({ which: 'first' });
   });
 });

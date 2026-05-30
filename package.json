@@ -1,22 +1,18 @@
 {
   "name": "@papercusp/rrf",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "description": "Reciprocal Rank Fusion — combine multiple ranked result lists into one. Pure, zero-dependency. Canonical use is fusing a BM25 ranking with a vector-similarity ranking, but it is domain-agnostic.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:typecheck": "tsc --noEmit"
+    "test": "vitest run"
   },
   "devDependencies": {
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.4"
   }
 }
