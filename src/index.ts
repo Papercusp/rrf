@@ -24,13 +24,34 @@ export interface FusedItem<T> {
 export const RRF_K_DEFAULT = 60;
 
 export function rrfCombine<T>(
-  inputs: Array<{ name: string; list: Array<RankedItem<T>> }>,
+  inputs: Array<{
+    name: string;
+    list: Array<RankedItem<T>>;
+    /**
+     * Rank at which this list's positions START, for a list that is a
+     * CONTINUATION of another ranking rather than a ranking in its own right.
+     *
+     * RRF derives a contribution purely from a row's INDEX WITHIN ITS OWN
+     * LIST, which silently assumes every list ranks the same field over the
+     * same population. A list built by re-querying a NARROWER population (a
+     * time window, a shard) breaks that assumption: its rows were already
+     * beaten by the main list, yet re-indexing them from 0 hands its best row
+     * `1/(k+1)` — the exact contribution the single best row in the whole
+     * corpus receives. Offsetting by the length of the list it continues puts
+     * those rows where they actually stand, so such a leg can widen the
+     * candidate pool (its purpose) without inflating relevance.
+     *
+     * Omitted / 0 ⇒ unchanged behaviour: an independent ranking starts at 0.
+     */
+    rankOffset?: number;
+  }>,
   k = RRF_K_DEFAULT,
 ): Array<FusedItem<T>> {
   const acc = new Map<string, { row: T; score: number; rankers: string[] }>();
-  for (const { name, list } of inputs) {
+  for (const { name, list, rankOffset } of inputs) {
+    const offset = rankOffset && rankOffset > 0 ? rankOffset : 0;
     list.forEach((entry, idx) => {
-      const rrf = 1 / (k + idx + 1);
+      const rrf = 1 / (k + offset + idx + 1);
       const existing = acc.get(entry.key);
       if (existing) {
         existing.score += rrf;

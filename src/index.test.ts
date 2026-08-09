@@ -3,6 +3,56 @@ import { rrfCombine, RRF_K_DEFAULT } from './index';
 
 const item = (key: string, score = 0) => ({ key, score, row: { key } });
 
+describe('rrfCombine rankOffset — a list that CONTINUES another ranking', () => {
+  it('offsets contributions instead of restarting the rank scale at 0', () => {
+    const [noOffset] = rrfCombine([{ name: 'fresh', list: [item('x')] }]);
+    const [offset] = rrfCombine([{ name: 'fresh', list: [item('x')], rankOffset: 10 }]);
+    expect(noOffset!.score).toBeCloseTo(1 / (RRF_K_DEFAULT + 1), 12);
+    expect(offset!.score).toBeCloseTo(1 / (RRF_K_DEFAULT + 11), 12);
+  });
+
+  it('stops a continuation list outranking the main list it was beaten by', () => {
+    // `far` lost the main ranking outright; `mid` is the main list's last row.
+    // Without the offset the continuation's rank-0 row beats every main row —
+    // the exact defect measured in D-044.
+    const main = [item('top'), item('mid')];
+    const cont = [item('far')];
+    const unfixed = rrfCombine([
+      { name: 'lexical', list: main },
+      { name: 'lexical-fresh', list: cont },
+    ]);
+    expect(unfixed.map((f) => f.row.key)).toEqual(['top', 'far', 'mid']);
+
+    const fixed = rrfCombine([
+      { name: 'lexical', list: main },
+      { name: 'lexical-fresh', list: cont, rankOffset: main.length },
+    ]);
+    expect(fixed.map((f) => f.row.key)).toEqual(['top', 'mid', 'far']);
+  });
+
+  it('still lets a continuation row win on AGREEMENT — a seat, not a demotion', () => {
+    // `both` is found by the main leg AND another ranker; the offset must not
+    // stop the two contributions summing past a single-leg row.
+    const out = rrfCombine([
+      { name: 'lexical', list: [item('solo'), item('both')] },
+      { name: 'embeddings', list: [item('both')] },
+      { name: 'lexical-fresh', list: [item('late')], rankOffset: 2 },
+    ]);
+    expect(out[0]!.row.key).toBe('both');
+    expect(out.at(-1)!.row.key).toBe('late');
+  });
+
+  it('treats omitted / zero / negative offsets as no offset', () => {
+    const base = rrfCombine([{ name: 'r', list: [item('a')] }])[0]!.score;
+    for (const rankOffset of [0, -5, undefined]) {
+      expect(rrfCombine([{ name: 'r', list: [item('a')], rankOffset }])[0]!.score).toBeCloseTo(
+        base,
+        12,
+      );
+    }
+  });
+});
+
 describe('rrfCombine', () => {
   it('returns empty for empty input', () => {
     expect(rrfCombine([])).toEqual([]);
