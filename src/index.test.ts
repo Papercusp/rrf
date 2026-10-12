@@ -3,6 +3,26 @@ import { rrfCombine, RRF_K_DEFAULT } from './index';
 
 const item = (key: string, score = 0) => ({ key, score, row: { key } });
 
+describe('rrfCombine original ordinal through an alternative-list merge', () => {
+  it('uses the original ordinal instead of charging an interleave position again', () => {
+    const list = [
+      { ...item('bm25-head', 999), fusionRank: 1 },
+      { ...item('exact-head', 0.001), fusionRank: 1 },
+      { ...item('exact-third', -999), fusionRank: 3 },
+    ];
+    const result = rrfCombine([{ name: 'lexical', list, rankOffset: 10 }]);
+    expect(result.map(r => r.row.key)).toEqual(['bm25-head', 'exact-head', 'exact-third']);
+    expect(result[0].score).toBeCloseTo(1 / (RRF_K_DEFAULT + 11), 12);
+    expect(result[1].score).toBeCloseTo(result[0].score, 12);
+    expect(result[2].score).toBeCloseTo(1 / (RRF_K_DEFAULT + 13), 12);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])('rejects invalid original ordinal %s', fusionRank => {
+    expect(() => rrfCombine([{ name: 'lexical', list: [{ ...item('x'), fusionRank }] }]))
+      .toThrow(/fusionRank/);
+  });
+});
+
 describe('rrfCombine rankOffset — a list that CONTINUES another ranking', () => {
   it('offsets contributions instead of restarting the rank scale at 0', () => {
     const [noOffset] = rrfCombine([{ name: 'fresh', list: [item('x')] }]);

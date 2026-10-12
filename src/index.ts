@@ -9,6 +9,10 @@ export interface RankedItem<T> {
   key: string;
   /** Ranker-native score; not used by RRF, kept for inspection. */
   score: number;
+  /** Original 1-based ordinal when correlated alternatives were interleaved.
+   *  Omitted: use the item's position in this list. Equal ordinals are valid;
+   *  the alternatives supply one vote at their best rank, not two votes. */
+  fusionRank?: number;
   /** Whatever payload callers want to carry through. */
   row: T;
 }
@@ -51,7 +55,11 @@ export function rrfCombine<T>(
   for (const { name, list, rankOffset } of inputs) {
     const offset = rankOffset && rankOffset > 0 ? rankOffset : 0;
     list.forEach((entry, idx) => {
-      const rrf = 1 / (k + offset + idx + 1);
+      const rank = entry.fusionRank ?? idx + 1;
+      if (!Number.isSafeInteger(rank) || rank < 1) {
+        throw new RangeError(`RRF fusionRank must be a positive safe integer; got ${rank}`);
+      }
+      const rrf = 1 / (k + offset + rank);
       const existing = acc.get(entry.key);
       if (existing) {
         existing.score += rrf;
